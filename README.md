@@ -1,5 +1,5 @@
 Runtime independent broadcast, which only polls it's underlying stream if no pending data is available.
-```
+```rust
 #[tokio::main]
 async fn main() {
     use futures::StreamExt;
