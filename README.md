@@ -1,16 +1,16 @@
 Runtime independent broadcast, which only polls it's underlying stream if no pending data is available.
 ```
-# #[tokio::main]
-# async fn main() {
-use futures::StreamExt;
-use stream_broadcast::StreamBroadcastExt;
+#[tokio::main]
+async fn main() {
+    use futures::StreamExt;
+    use stream_broadcast::StreamBroadcastExt;
 
-let broadcast = futures::stream::iter(0..4).broadcast(3);
-let broadcast2 = broadcast.clone();
-assert_eq!(4, broadcast.count().await);
-// Number Zero wasn't available anymore due to BroadcastSize=3
-assert_eq!(vec![(1, 1), (0,2), (0,3)], broadcast2.collect::<Vec<_>>().await);
-# }
+    let broadcast = futures::stream::iter(0..4).broadcast(3);
+    let broadcast2 = broadcast.clone();
+    assert_eq!(4, broadcast.count().await);
+    // Number Zero wasn't available anymore due to BroadcastSize=3
+    assert_eq!(vec![(1, 1), (0,2), (0,3)], broadcast2.collect::<Vec<_>>().await);
+}
 ```
 Uses `#![forbid(unsafe_code)]`
 # Difference to other libraries:
