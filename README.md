@@ -22,6 +22,6 @@ Uses `#![forbid(unsafe_code)]`
 
 
 [tokio::sync::broadcast](https://docs.rs/tokio/latest/tokio/sync/broadcast/index.html):
-- Broacasts don't implement Stream directly, but [tokio_stream](https://docs.rs/tokio-stream/latest/tokio_stream/wrappers/struct.BroadcastStream.html) provides a wrapper.
+- Broadcasts don't implement Stream directly, but [tokio_stream](https://docs.rs/tokio-stream/latest/tokio_stream/wrappers/struct.BroadcastStream.html) provides a wrapper.
 - Entries are pushed actively to the sender (No Lazy evaluation when stream is paused). This requires a subroutine, which has to be managed somehow.
-- Instead of returning missing frames in the ErrorVariant ([tokio_stream](https://docs.rs/tokio-stream/latest/tokio_stream/wrappers/struct.BroadcastStream.html)), this library returns a tuple (missing_frames_since_last_frame, TData) to mitigate errors when doing stuff like stream.count()
+- Instead of returning missing frames in the ErrorVariant ([tokio_stream](https://docs.rs/tokio-stream/latest/tokio_stream/wrappers/struct.BroadcastStream.html)), this library returns a tuple (missing_frames_since_last_frame, TData) to mitigate errors when doing stuff like `stream.count()`
