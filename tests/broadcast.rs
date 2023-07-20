@@ -1,7 +1,7 @@
 use std::sync::atomic;
 
 use futures::{Stream, StreamExt};
-use stream_broadcast::StreamBroadcast;
+use stream_broadcast::{StreamBroadcast, StreamBroadcastExt};
 
 #[tokio::test]
 async fn broadcast() {
@@ -80,4 +80,24 @@ async fn use_with_not_pin() {
     let input = futures::stream::iter(0..4).then(|x| async move { x });
     let broadcast = StreamBroadcast::new(input, 3);
     assert_eq!(4, broadcast.count().await);
+}
+
+#[tokio::test]
+async fn test_parallel() {
+    const ITERATIONS: usize = 50;
+    let stream1 = futures::stream::iter(0..ITERATIONS)
+        .then(|x| async move {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            x
+        })
+        .broadcast(5);
+    let stream2 = stream1.clone();
+
+    let (r1, r2) = futures::future::join(
+        tokio::task::spawn(stream1.count()),
+        tokio::task::spawn(stream2.count()),
+    )
+    .await;
+    assert_eq!(r1.unwrap(), ITERATIONS);
+    assert_eq!(r2.unwrap(), ITERATIONS)
 }

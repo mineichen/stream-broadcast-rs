@@ -9,9 +9,11 @@ use pin_project::pin_project;
 use std::{
     ops::DerefMut,
     pin::{pin, Pin},
-    sync::{Arc, Mutex},
+    sync::{atomic::AtomicU64, Arc, Mutex},
     task::Poll,
 };
+
+static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub trait StreamBroadcastExt: Stream + Sized {
     fn broadcast(self, size: usize) -> StreamBroadcast<Self>;
@@ -29,6 +31,7 @@ where
 #[pin_project]
 pub struct StreamBroadcast<T: Stream> {
     pos: u64,
+    id: u64,
     state: Arc<Mutex<Pin<Box<StreamBroadcastState<T>>>>>,
 }
 
@@ -36,6 +39,7 @@ impl<T: Stream> Clone for StreamBroadcast<T> {
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
+            id: ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
             pos: self.state.lock().unwrap().global_pos,
         }
     }
@@ -48,6 +52,7 @@ where
     pub fn new(outer: T, size: usize) -> Self {
         Self {
             state: Arc::new(Mutex::new(Box::pin(StreamBroadcastState::new(outer, size)))),
+            id: ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
             pos: 0,
         }
     }
@@ -67,7 +72,7 @@ where
         let mut lock = this.state.lock().unwrap();
         let pinned = lock.deref_mut().as_mut();
 
-        match pinned.poll(cx, *this.pos) {
+        match pinned.poll(cx, *this.pos, *this.id) {
             Poll::Ready(Some((new_pos, x))) => {
                 debug_assert!(
                     new_pos > *this.pos,
@@ -94,6 +99,7 @@ struct StreamBroadcastState<T: Stream> {
     stream: Fuse<T>,
     global_pos: u64,
     cache: Vec<T::Item>,
+    wakable: Vec<(u64, std::task::Waker)>,
 }
 
 impl<T: Stream> StreamBroadcastState<T>
@@ -105,12 +111,14 @@ where
             stream: outer.fuse(),
             cache: Vec::with_capacity(size), // Could be improved with  Box<[MaybeUninit<T::Item>]>
             global_pos: Default::default(),
+            wakable: Default::default(),
         }
     }
     fn poll(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         request_pos: u64,
+        id: u64,
     ) -> Poll<Option<(u64, T::Item)>> {
         let this = self.project();
         if *this.global_pos > request_pos {
@@ -127,6 +135,12 @@ where
 
         match this.stream.poll_next(cx) {
             Poll::Ready(Some(x)) => {
+                this.wakable.drain(..).for_each(|(k, w)| {
+                    if k != id {
+                        w.wake();
+                    }
+                });
+
                 let cap = this.cache.capacity();
                 if this.cache.len() < cap {
                     this.cache.push(x.clone());
@@ -138,10 +152,10 @@ where
                 Poll::Ready(Some(result))
             }
             Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
+            Poll::Pending => {
+                this.wakable.push((id, cx.waker().clone()));
+                Poll::Pending
+            }
         }
     }
 }
-
-#[cfg(test)]
-mod tests {}

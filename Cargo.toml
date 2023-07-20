@@ -1,6 +1,6 @@
 [package]
 name = "stream-broadcast"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Markus Ineichen <kusi.ineichen@gmail.com>"]
 description = "Runtime independent broadcast, which only polls it's underlying stream if no pending data is available"
 repository = "https://github.com/mineichen/stream-broadcast-rs"
@@ -17,4 +17,4 @@ futures = "0.3"
 pin-project = "1"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
