@@ -59,6 +59,21 @@ where
         }
     }
 
+    /// Creates a weak broadcast which terminates its stream, if all 'strong' [StreamBroadcast] went out of scope
+    ///
+    /// ```
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// use futures::StreamExt;
+    /// use stream_broadcast::StreamBroadcastExt;
+    ///
+    /// let stream = futures::stream::iter(0..).broadcast(5);
+    /// let mut weak = std::pin::pin!(stream.weak());
+    /// assert_eq!(Some((0, 0)), weak.next().await);
+    /// drop(stream);
+    /// assert_eq!(None, weak.next().await);
+    /// # }
+    /// ```
     pub fn weak(&self) -> WeakStreamBroadcast<T> {
         WeakStreamBroadcast::new(Arc::downgrade(&self.state), self.pos)
     }

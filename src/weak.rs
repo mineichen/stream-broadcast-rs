@@ -11,6 +11,7 @@ use crate::create_id;
 
 use super::{broadast_next, StreamBroadcastState};
 
+/// Created by [weak](crate::StreamBroadcast::weak)
 #[pin_project]
 pub struct WeakStreamBroadcast<T: Stream> {
     pos: u64,

@@ -5,11 +5,12 @@ use stream_broadcast::StreamBroadcastExt;
 
 #[tokio::main]
 async fn main() {
-    let broadcast = futures::stream::iter(0..4).broadcast(3);
+    let broadcast = futures::stream::iter('a'..='d').broadcast(3);
     let broadcast2 = broadcast.clone();
     assert_eq!(4, broadcast.count().await);
-    // Number Zero wasn't available anymore due to BroadcastSize=3
-    assert_eq!(vec![(1, 1), (0,2), (0,3)], broadcast2.collect::<Vec<_>>().await);
+    // Letter 'a' wasn't available anymore due to `broadcast(3)`, which limits the buffer to 3 items
+    // Left side of tuple represents number of missed items
+    assert_eq!(vec![(1, 'b'), (0, 'c'), (0, 'd')], broadcast2.collect::<Vec<_>>().await);
 }
 ```
 Uses `#![forbid(unsafe_code)]`
