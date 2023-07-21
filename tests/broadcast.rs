@@ -1,4 +1,4 @@
-use std::sync::atomic;
+use std::{pin::pin, sync::atomic};
 
 use futures::{Stream, StreamExt};
 use stream_broadcast::{StreamBroadcast, StreamBroadcastExt};
@@ -100,4 +100,16 @@ async fn test_parallel() {
     .await;
     assert_eq!(r1.unwrap(), ITERATIONS);
     assert_eq!(r2.unwrap(), ITERATIONS)
+}
+
+#[tokio::test]
+async fn weak_terminates_when_all_owned_are_destroyed() {
+    let stream1 = futures::stream::iter(0..5).broadcast(5);
+    let stream2 = stream1.clone();
+    let mut weak = pin!(stream1.weak());
+    assert_eq!(Some((0, 0)), weak.next().await);
+    drop(stream1);
+    assert_eq!(Some((0, 1)), weak.next().await);
+    drop(stream2);
+    assert_eq!(None, weak.next().await);
 }

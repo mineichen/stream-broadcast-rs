@@ -13,7 +13,9 @@ use std::{
     task::Poll,
 };
 
-static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+mod weak;
+
+pub use weak::*;
 
 pub trait StreamBroadcastExt: Stream + Sized {
     fn broadcast(self, size: usize) -> StreamBroadcast<Self>;
@@ -39,7 +41,7 @@ impl<T: Stream> Clone for StreamBroadcast<T> {
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
-            id: ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+            id: create_id(),
             pos: self.state.lock().unwrap().global_pos,
         }
     }
@@ -52,9 +54,13 @@ where
     pub fn new(outer: T, size: usize) -> Self {
         Self {
             state: Arc::new(Mutex::new(Box::pin(StreamBroadcastState::new(outer, size)))),
-            id: ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+            id: create_id(),
             pos: 0,
         }
+    }
+
+    pub fn weak(&self) -> WeakStreamBroadcast<T> {
+        WeakStreamBroadcast::new(Arc::downgrade(&self.state), self.pos)
     }
 }
 
@@ -70,26 +76,34 @@ where
     ) -> Poll<Option<Self::Item>> {
         let this = self.project();
         let mut lock = this.state.lock().unwrap();
-        let pinned = lock.deref_mut().as_mut();
-
-        match pinned.poll(cx, *this.pos, *this.id) {
-            Poll::Ready(Some((new_pos, x))) => {
-                debug_assert!(
-                    new_pos > *this.pos,
-                    "Must always grow {} > {}",
-                    new_pos,
-                    *this.pos
-                );
-                let offset = new_pos - *this.pos - 1;
-                *this.pos = new_pos;
-                Poll::Ready(Some((offset, x)))
-            }
-            Poll::Ready(None) => {
-                *this.pos += 1;
-                Poll::Ready(None)
-            }
-            Poll::Pending => Poll::Pending,
+        broadast_next(lock.deref_mut().as_mut(), cx, this.pos, *this.id)
+    }
+}
+fn create_id() -> u64 {
+    static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+    ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+}
+fn broadast_next<T: Stream>(
+    pinned: Pin<&mut StreamBroadcastState<T>>,
+    cx: &mut std::task::Context<'_>,
+    pos: &mut u64,
+    id: u64,
+) -> Poll<Option<(u64, T::Item)>>
+where
+    T::Item: Clone,
+{
+    match pinned.poll(cx, *pos, id) {
+        Poll::Ready(Some((new_pos, x))) => {
+            debug_assert!(new_pos > *pos, "Must always grow {} > {}", new_pos, *pos);
+            let offset = new_pos - *pos - 1;
+            *pos = new_pos;
+            Poll::Ready(Some((offset, x)))
         }
+        Poll::Ready(None) => {
+            *pos += 1;
+            Poll::Ready(None)
+        }
+        Poll::Pending => Poll::Pending,
     }
 }
 
