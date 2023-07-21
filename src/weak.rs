@@ -1,4 +1,4 @@
-use futures::stream::Stream;
+use futures::stream::{FusedStream, Stream};
 use pin_project::pin_project;
 use std::{
     ops::DerefMut,
@@ -13,13 +13,13 @@ use super::{broadast_next, StreamBroadcastState};
 
 /// Created by [weak](crate::StreamBroadcast::weak)
 #[pin_project]
-pub struct WeakStreamBroadcast<T: Stream> {
+pub struct WeakStreamBroadcast<T: FusedStream> {
     pos: u64,
     id: u64,
     state: Weak<Mutex<Pin<Box<StreamBroadcastState<T>>>>>,
 }
 
-impl<T: Stream> WeakStreamBroadcast<T> {
+impl<T: FusedStream> WeakStreamBroadcast<T> {
     pub(crate) fn new(state: Weak<Mutex<Pin<Box<StreamBroadcastState<T>>>>>, pos: u64) -> Self {
         Self {
             pos,
@@ -29,7 +29,7 @@ impl<T: Stream> WeakStreamBroadcast<T> {
     }
 }
 
-impl<T: Stream> Clone for WeakStreamBroadcast<T> {
+impl<T: FusedStream> Clone for WeakStreamBroadcast<T> {
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
@@ -43,7 +43,7 @@ impl<T: Stream> Clone for WeakStreamBroadcast<T> {
     }
 }
 
-impl<T: Stream> Stream for WeakStreamBroadcast<T>
+impl<T: FusedStream> Stream for WeakStreamBroadcast<T>
 where
     T::Item: Clone,
 {
@@ -59,5 +59,18 @@ where
         };
         let mut lock = state.lock().unwrap();
         broadast_next(lock.deref_mut().as_mut(), cx, this.pos, *this.id)
+    }
+}
+
+impl<T: FusedStream> FusedStream for WeakStreamBroadcast<T>
+where
+    T::Item: Clone,
+{
+    fn is_terminated(&self) -> bool {
+        if let Some(u) = self.state.upgrade() {
+            u.lock().unwrap().stream.is_terminated()
+        } else {
+            true
+        }
     }
 }

@@ -5,7 +5,7 @@ use stream_broadcast::StreamBroadcastExt;
 
 #[tokio::main]
 async fn main() {
-    let broadcast = futures::stream::iter('a'..='d').broadcast(3);
+    let broadcast = futures::stream::iter('a'..='d').fuse().broadcast(3);
     let broadcast2 = broadcast.clone();
     assert_eq!(4, broadcast.count().await);
     // Letter 'a' wasn't available anymore due to `broadcast(3)`, which limits the buffer to 3 items

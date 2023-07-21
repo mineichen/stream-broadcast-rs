@@ -1,10 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 
-use futures::{
-    stream::{Fuse, Stream},
-    StreamExt,
-};
+use futures::stream::{FusedStream, Stream};
 use pin_project::pin_project;
 use std::{
     ops::DerefMut,
@@ -17,11 +14,11 @@ mod weak;
 
 pub use weak::*;
 
-pub trait StreamBroadcastExt: Stream + Sized {
+pub trait StreamBroadcastExt: FusedStream + Sized {
     fn broadcast(self, size: usize) -> StreamBroadcast<Self>;
 }
 
-impl<T: Stream + Sized> StreamBroadcastExt for T
+impl<T: FusedStream + Sized> StreamBroadcastExt for T
 where
     T::Item: Clone,
 {
@@ -31,13 +28,13 @@ where
 }
 
 #[pin_project]
-pub struct StreamBroadcast<T: Stream> {
+pub struct StreamBroadcast<T: FusedStream> {
     pos: u64,
     id: u64,
     state: Arc<Mutex<Pin<Box<StreamBroadcastState<T>>>>>,
 }
 
-impl<T: Stream> Clone for StreamBroadcast<T> {
+impl<T: FusedStream> Clone for StreamBroadcast<T> {
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
@@ -47,7 +44,7 @@ impl<T: Stream> Clone for StreamBroadcast<T> {
     }
 }
 
-impl<T: Stream> StreamBroadcast<T>
+impl<T: FusedStream> StreamBroadcast<T>
 where
     T::Item: Clone,
 {
@@ -67,7 +64,7 @@ where
     /// use futures::StreamExt;
     /// use stream_broadcast::StreamBroadcastExt;
     ///
-    /// let stream = futures::stream::iter(0..).broadcast(5);
+    /// let stream = futures::stream::iter(0..).fuse().broadcast(5);
     /// let mut weak = std::pin::pin!(stream.weak());
     /// assert_eq!(Some((0, 0)), weak.next().await);
     /// drop(stream);
@@ -79,7 +76,7 @@ where
     }
 }
 
-impl<T: Stream> Stream for StreamBroadcast<T>
+impl<T: FusedStream> Stream for StreamBroadcast<T>
 where
     T::Item: Clone,
 {
@@ -98,7 +95,7 @@ fn create_id() -> u64 {
     static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
     ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
 }
-fn broadast_next<T: Stream>(
+fn broadast_next<T: FusedStream>(
     pinned: Pin<&mut StreamBroadcastState<T>>,
     cx: &mut std::task::Context<'_>,
     pos: &mut u64,
@@ -122,22 +119,31 @@ where
     }
 }
 
+impl<T: FusedStream> FusedStream for StreamBroadcast<T>
+where
+    T::Item: Clone,
+{
+    fn is_terminated(&self) -> bool {
+        self.state.lock().unwrap().stream.is_terminated()
+    }
+}
+
 #[pin_project]
-struct StreamBroadcastState<T: Stream> {
+struct StreamBroadcastState<T: FusedStream> {
     #[pin]
-    stream: Fuse<T>,
+    stream: T,
     global_pos: u64,
     cache: Vec<T::Item>,
     wakable: Vec<(u64, std::task::Waker)>,
 }
 
-impl<T: Stream> StreamBroadcastState<T>
+impl<T: FusedStream> StreamBroadcastState<T>
 where
     T::Item: Clone,
 {
     fn new(outer: T, size: usize) -> Self {
         Self {
-            stream: outer.fuse(),
+            stream: outer,
             cache: Vec::with_capacity(size), // Could be improved with  Box<[MaybeUninit<T::Item>]>
             global_pos: Default::default(),
             wakable: Default::default(),
