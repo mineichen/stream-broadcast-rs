@@ -109,7 +109,7 @@ async fn test_parallel() {
 async fn weak_terminates_when_all_owned_are_destroyed() {
     let stream1 = futures::stream::iter(0..5).fuse().broadcast(5);
     let stream2 = stream1.clone();
-    let mut weak = pin!(stream1.weak());
+    let mut weak = pin!(stream1.downgrade());
     assert_eq!(Some((0, 0)), weak.next().await);
     drop(stream1);
     assert_eq!(Some((0, 1)), weak.next().await);

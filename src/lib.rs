@@ -71,6 +71,11 @@ where
     /// assert_eq!(None, weak.next().await);
     /// # }
     /// ```
+    pub fn downgrade(&self) -> WeakStreamBroadcast<T> {
+        WeakStreamBroadcast::new(Arc::downgrade(&self.state), self.pos)
+    }
+
+    #[deprecated(since = "0.2.2", note = "please use `downgrade` instead")]
     pub fn weak(&self) -> WeakStreamBroadcast<T> {
         WeakStreamBroadcast::new(Arc::downgrade(&self.state), self.pos)
     }

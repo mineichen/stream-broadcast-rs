@@ -7,9 +7,7 @@ use std::{
     task::Poll,
 };
 
-use crate::create_id;
-
-use super::{broadast_next, StreamBroadcastState};
+use super::{broadast_next, create_id, StreamBroadcast, StreamBroadcastState};
 
 /// Created by [weak](crate::StreamBroadcast::weak)
 #[pin_project]
@@ -26,6 +24,16 @@ impl<T: FusedStream> WeakStreamBroadcast<T> {
             id: create_id(),
             state,
         }
+    }
+
+    /// Upgrades a WeakBroadcast to a StreamBroadcast, whose existence keeps the stream running
+    pub fn upgrade(&self) -> Option<StreamBroadcast<T>> {
+        let state = self.state.upgrade()?;
+        Some(StreamBroadcast {
+            pos: self.pos,
+            id: create_id(),
+            state,
+        })
     }
 }
 

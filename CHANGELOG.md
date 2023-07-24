@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+
+# 0.2.2 (21. July, 2023)
+- **deprecate** Use the more common names `downgrade` to switch from StreamBroadcast->WeakStreamBroadcast. The `weak` method became deprecated
+- **add** Introduce `upgrade` to get a `Option<StreamBroadcast>` from `WeakStreamBroadcast`
+
 # 0.2.1 (21. July, 2023)
 - **fix** FusedStream requirement was not part of the release (Other changes were not breaking) (0.2.0 will be yanked)
 
