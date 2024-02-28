@@ -17,6 +17,20 @@ pub struct WeakStreamBroadcast<T: FusedStream> {
     state: Weak<Mutex<Pin<Box<StreamBroadcastState<T>>>>>,
 }
 
+impl<T: FusedStream> std::fmt::Debug for WeakStreamBroadcast<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let pending = self
+            .state
+            .upgrade()
+            .map(|x| x.lock().unwrap().global_pos - self.pos)
+            .unwrap_or(0);
+        f.debug_struct("WeakStreamBroadcast")
+            .field("pending_messages", &pending)
+            .field("strong_count", &self.state.strong_count())
+            .finish()
+    }
+}
+
 impl<T: FusedStream> WeakStreamBroadcast<T> {
     pub(crate) fn new(state: Weak<Mutex<Pin<Box<StreamBroadcastState<T>>>>>, pos: u64) -> Self {
         Self {
@@ -42,11 +56,7 @@ impl<T: FusedStream> Clone for WeakStreamBroadcast<T> {
         Self {
             state: self.state.clone(),
             id: create_id(),
-            pos: self
-                .state
-                .upgrade()
-                .map(|s| s.lock().unwrap().global_pos)
-                .unwrap_or(0), // State is never polled anyways
+            pos: self.pos,
         }
     }
 }

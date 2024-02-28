@@ -34,6 +34,16 @@ pub struct StreamBroadcast<T: FusedStream> {
     state: Arc<Mutex<Pin<Box<StreamBroadcastState<T>>>>>,
 }
 
+impl<T: FusedStream> std::fmt::Debug for StreamBroadcast<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let pending = self.state.lock().unwrap().global_pos - self.pos;
+        f.debug_struct("WeakStreamBroadcast")
+            .field("pending_messages", &pending)
+            .field("strong_count", &Arc::strong_count(&self.state))
+            .finish()
+    }
+}
+
 impl<T: FusedStream> Clone for StreamBroadcast<T> {
     fn clone(&self) -> Self {
         Self {
