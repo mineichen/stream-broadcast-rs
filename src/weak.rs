@@ -49,6 +49,19 @@ impl<T: FusedStream> WeakStreamBroadcast<T> {
             state,
         })
     }
+
+    /// In contrast to clone, this method only shows new messages provided by the source stream
+    pub fn re_subscribe(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+            id: create_id(),
+            pos: self
+                .state
+                .upgrade()
+                .map(|s| s.lock().unwrap().global_pos)
+                .unwrap_or(0), // State is never polled anyways
+        }
+    }
 }
 
 impl<T: FusedStream> Clone for WeakStreamBroadcast<T> {

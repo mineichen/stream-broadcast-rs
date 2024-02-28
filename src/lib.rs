@@ -89,6 +89,15 @@ where
     pub fn weak(&self) -> WeakStreamBroadcast<T> {
         WeakStreamBroadcast::new(Arc::downgrade(&self.state), self.pos)
     }
+
+    /// In contrast to clone, this method only shows new messages provided by the source stream
+    pub fn re_subscribe(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+            id: create_id(),
+            pos: self.state.lock().unwrap().global_pos,
+        }
+    }
 }
 
 impl<T: FusedStream> Stream for StreamBroadcast<T>
