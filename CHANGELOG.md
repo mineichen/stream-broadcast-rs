@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+# 0.2.3 (22. February, 2024)
+- **bugfix** Cloned `StreamBroadcast` and `WeakStreamBroadcast` now inherit the position of their origin, so they both see the same messages.
+- **add** Implement `std::fmt::Debug` for `StreamBroadcast` and `WeakStreamBroadcast`
+
 
 # 0.2.2 (21. July, 2023)
 - **deprecate** Use the more common names `downgrade` to switch from StreamBroadcast->WeakStreamBroadcast. The `weak` method became deprecated
