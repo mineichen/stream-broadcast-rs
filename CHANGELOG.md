@@ -2,10 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+# 0.3.0 (22. February, 2024)
+- **add** Add `StreamBroadcast::re_subscribe` and `WeakStreamBroadcast::re_subscribe` with the old behaviour of clone()
+- **breaking** Remove deprecated `StreamBroadcast::weak` 
+- **breaking** Clone continues on the same position as it's origin. Use re_subscribe() if this you need the old behaviour
+
 # 0.2.3 (22. February, 2024)
 - **bugfix** Cloned `StreamBroadcast` and `WeakStreamBroadcast` now inherit the position of their origin, so they both see the same messages.
 - **add** Implement `std::fmt::Debug` for `StreamBroadcast` and `WeakStreamBroadcast`
-- Yanked for incompatible clone method. 
+- Yanked for incompatible clone method. Release 0.3 instead, which contains all features of this release
 
 # 0.2.2 (21. July, 2023)
 - **deprecate** Use the more common names `downgrade` to switch from StreamBroadcast->WeakStreamBroadcast. The `weak` method became deprecated

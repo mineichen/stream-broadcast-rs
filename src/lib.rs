@@ -85,11 +85,6 @@ where
         WeakStreamBroadcast::new(Arc::downgrade(&self.state), self.pos)
     }
 
-    #[deprecated(since = "0.2.2", note = "please use `downgrade` instead")]
-    pub fn weak(&self) -> WeakStreamBroadcast<T> {
-        WeakStreamBroadcast::new(Arc::downgrade(&self.state), self.pos)
-    }
-
     /// In contrast to clone, this method only shows new messages provided by the source stream
     pub fn re_subscribe(&self) -> Self {
         Self {
