@@ -49,7 +49,7 @@ impl<T: FusedStream> Clone for StreamBroadcast<T> {
         Self {
             state: self.state.clone(),
             id: create_id(),
-            pos: self.state.lock().unwrap().global_pos,
+            pos: self.pos,
         }
     }
 }
