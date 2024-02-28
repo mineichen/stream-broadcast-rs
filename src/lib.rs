@@ -75,7 +75,7 @@ where
     /// use stream_broadcast::StreamBroadcastExt;
     ///
     /// let stream = futures::stream::iter(0..).fuse().broadcast(5);
-    /// let mut weak = std::pin::pin!(stream.weak());
+    /// let mut weak = std::pin::pin!(stream.downgrade());
     /// assert_eq!(Some((0, 0)), weak.next().await);
     /// drop(stream);
     /// assert_eq!(None, weak.next().await);
