@@ -410,16 +410,33 @@ struct StreamBroadcastState<T: FusedStream> {
     cache: Vec<T::Item>,
     /// subscriber id -> next pos to read, for every live lossless subscriber.
     lossless: BTreeMap<u64, u64>,
+    /// `(lossless.values().min(), how many entries hold that value)`, kept in sync by every
+    /// mutator below instead of being rescanned on every poll -- `can_advance` is on the hot
+    /// path (checked by every blocked subscriber on every wake), while registry mutations are
+    /// comparatively rare. The tie count means a mutator only needs to rescan the whole map
+    /// when it changes the *last* entry still holding the minimum, not merely one of several
+    /// tied at it. `(u64::MAX, 0)` when there are no lossless subscribers: `global_pos` can
+    /// never reach `u64::MAX`, so `can_advance` naturally always allows advancing.
+    min_lossless_pos: (u64, usize),
     wakable: Vec<(u64, std::task::Waker)>,
 }
 
-/// Whether the input stream may be polled again without overwriting an item that a lossless
-/// subscriber still needs. An empty registry means "unconstrained" -- today's lossy behaviour.
-fn can_advance(global_pos: u64, cap: u64, lossless: &BTreeMap<u64, u64>) -> bool {
+/// Recomputes `min_lossless_pos` from scratch: the minimum value in `lossless` and how many
+/// entries hold it, or `(u64::MAX, 0)` if it's empty.
+fn recompute_min_lossless_pos(lossless: &BTreeMap<u64, u64>) -> (u64, usize) {
     lossless
         .values()
-        .min()
-        .is_none_or(|&min| global_pos.saturating_sub(min) < cap)
+        .fold((u64::MAX, 0), |(min, count), &pos| match pos.cmp(&min) {
+            std::cmp::Ordering::Less => (pos, 1),
+            std::cmp::Ordering::Equal => (min, count + 1),
+            std::cmp::Ordering::Greater => (min, count),
+        })
+}
+
+/// Whether the input stream may be polled again without overwriting an item that a lossless
+/// subscriber still needs.
+fn can_advance(global_pos: u64, cap: u64, min_lossless_pos: u64) -> bool {
+    global_pos.saturating_sub(min_lossless_pos) < cap
 }
 
 /// Registers `waker` for `id`, replacing any waker already stored for it rather than
@@ -445,6 +462,7 @@ impl<T: FusedStream> StreamBroadcastState<T> {
             cap: size as u64,
             global_pos: 0,
             lossless: BTreeMap::default(),
+            min_lossless_pos: (u64::MAX, 0),
             wakable: Vec::default(),
         }
     }
@@ -456,6 +474,12 @@ impl<T: FusedStream> StreamBroadcastState<T> {
         let this = self.project();
         let pos = requested_pos.max(this.global_pos.saturating_sub(*this.cap));
         this.lossless.insert(id, pos);
+        let (min, count) = *this.min_lossless_pos;
+        *this.min_lossless_pos = match pos.cmp(&min) {
+            std::cmp::Ordering::Less => (pos, 1),
+            std::cmp::Ordering::Equal => (min, count + 1),
+            std::cmp::Ordering::Greater => (min, count),
+        };
         pos
     }
 
@@ -468,15 +492,37 @@ impl<T: FusedStream> StreamBroadcastState<T> {
 
     fn set_lossless_pos(self: Pin<&mut Self>, id: u64, pos: u64) {
         let this = self.project();
+        // Positions only ever increase, so this id can only invalidate the cached min if it
+        // held it before the update -- otherwise the true minimum is unaffected.
+        let old_pos = this.lossless.get(&id).copied();
         if let Some(entry) = this.lossless.get_mut(&id) {
             *entry = pos;
+        }
+        let (min, count) = *this.min_lossless_pos;
+        if old_pos == Some(min) {
+            *this.min_lossless_pos = if count > 1 {
+                // Other entries still tie the minimum, so it hasn't changed -- just one fewer
+                // holder of it.
+                (min, count - 1)
+            } else {
+                // This was the only entry at the minimum; find the new one.
+                recompute_min_lossless_pos(this.lossless)
+            };
         }
         wake_all(this.wakable, id);
     }
 
     fn unregister_lossless(self: Pin<&mut Self>, id: u64) {
         let this = self.project();
-        if this.lossless.remove(&id).is_some() {
+        if let Some(removed_pos) = this.lossless.remove(&id) {
+            let (min, count) = *this.min_lossless_pos;
+            if removed_pos == min {
+                *this.min_lossless_pos = if count > 1 {
+                    (min, count - 1)
+                } else {
+                    recompute_min_lossless_pos(this.lossless)
+                };
+            }
             this.wakable.drain(..).for_each(|(_, w)| {
                 w.wake();
             });
@@ -513,7 +559,7 @@ where
         }
 
         if !this.stream.as_ref().get_ref().is_terminated()
-            && !can_advance(*this.global_pos, *this.cap, this.lossless)
+            && !can_advance(*this.global_pos, *this.cap, this.min_lossless_pos.0)
         {
             register_waker(this.wakable, id, cx.waker());
             return Poll::Pending;

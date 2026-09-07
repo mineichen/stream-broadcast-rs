@@ -247,6 +247,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn min_lossless_pos_tie_breaking_does_not_corrupt_the_gate() {
+        // Exercises the tie-count optimization in `register_lossless`/`set_lossless_pos`: two
+        // lossless subscribers tied at the same minimum position must keep the gate closed
+        // until the *last* one advances past it, not just the first (which only decrements the
+        // cached tie count without a full rescan).
+        let stream = futures::stream::iter(0..10).fuse();
+        let mut lossless_a = stream.broadcast_lossless(2);
+        let mut lossless_b = lossless_a.clone(); // starts tied with `a`, both at pos 0
+        let mut lossy = lossless_a.create_lossy();
+
+        // Fill the buffer (cap=2); both lossless subscribers stay at pos 0, tied.
+        assert_eq!(Some((0, 0)), lossy.next().await);
+        assert_eq!(Some((0, 1)), lossy.next().await);
+        assert!(
+            timeout_fast(lossy.next()).await.is_err(),
+            "gate should be closed: both lossless subscribers still tied at pos 0"
+        );
+
+        // `a` advances past the tie -- `b` alone now holds the minimum; gate must stay closed.
+        assert_eq!(Some(0), lossless_a.next().await);
+        assert!(
+            timeout_fast(lossy.next()).await.is_err(),
+            "gate should still be closed: `b` alone still holds the minimum"
+        );
+
+        // `b` finally advances too -- both are at pos 1, tied at the new minimum -- gate reopens.
+        assert_eq!(Some(0), lossless_b.next().await);
+        assert_eq!(Some((0, 2)), lossy.next().await);
+    }
+
+    #[tokio::test]
     async fn lossless_and_lossy_share_the_buffer() {
         // `futures::stream::iter` never returns `Pending`, so `lossless` (the unconstrained min
         // holder) drains the whole source synchronously the first time it is polled, before `lossy`
