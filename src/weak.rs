@@ -1,4 +1,4 @@
-use futures::stream::{FusedStream, Stream};
+use futures_core::stream::{FusedStream, Stream};
 use pin_project::pin_project;
 use std::{
     ops::DerefMut as _,

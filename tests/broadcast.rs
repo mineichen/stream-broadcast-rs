@@ -46,10 +46,11 @@ mod tests {
 
     #[tokio::test]
     async fn indicates_skipped_entries() -> TestResult {
+        const CACHEMISS_REASON: &str = "fetch before running into cachemiss";
+
         let stream = futures::stream::iter(0..4).fuse();
         let broadcast = StreamBroadcastLossy::new(stream, 3);
         let mut broadcast2 = broadcast.clone();
-        const CACHEMISS_REASON: &str = "fetch before running into cachemiss";
         broadcast2.next().await.ok_or(CACHEMISS_REASON)?;
 
         assert_eq!(4, broadcast.count().await);

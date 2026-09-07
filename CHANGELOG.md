@@ -2,12 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+# 0.3.2
+- Replace futures dependency with futures-core
+
 # 0.3.1 (7. September, 2026)
 - **add** `StreamBroadcastLossless`, a subscriber which never skips items: while it still needs
   the oldest buffered item, the input stream is not polled, so producers feeding it stall.
   Create one with `StreamBroadcastExt::broadcast_lossless` or `StreamBroadcastLossy::create_lossless`
 - **add** `StreamBroadcastLossy`, a rename of `StreamBroadcast`. Create one with the new
-  `StreamBroadcastExt::broadcast_lossy`, or convert a lossless subscriber with `StreamBroadcastLossless::create_lossy`
+  `StreamBroadcastExt::broadcast_lossy`, or from a lossless subscriber with `StreamBroadcastLossless::create_lossy`
 - **add** `WeakStreamBroadcast::create_lossy` and `WeakStreamBroadcast::create_lossless`
 - **deprecate** `StreamBroadcastExt::broadcast` in favor of `broadcast_lossy`
 - **deprecate** `StreamBroadcast` type alias in favor of `StreamBroadcastLossy`

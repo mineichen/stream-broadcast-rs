@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 
-use futures::stream::{FusedStream, Stream};
+use futures_core::stream::{FusedStream, Stream};
 use pin_project::pin_project;
 use std::{
     collections::BTreeMap,
