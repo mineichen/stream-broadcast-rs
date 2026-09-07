@@ -1,7 +1,7 @@
 use futures::stream::{FusedStream, Stream};
 use pin_project::pin_project;
 use std::{
-    ops::DerefMut,
+    ops::DerefMut as _,
     pin::Pin,
     sync::{Mutex, Weak},
     task::Poll,
@@ -21,15 +21,16 @@ pub struct WeakStreamBroadcast<T: FusedStream> {
 
 impl<T: FusedStream> std::fmt::Debug for WeakStreamBroadcast<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let pending = self
-            .state
-            .upgrade()
-            .map(|x| x.lock().unwrap().global_pos.saturating_sub(self.pos))
-            .unwrap_or(0);
+        let pending = self.state.upgrade().map_or(0, |x| {
+            x.lock()
+                .expect(super::NOT_POISONED)
+                .global_pos
+                .saturating_sub(self.pos)
+        });
         f.debug_struct("WeakStreamBroadcast")
             .field("pending_messages", &pending)
             .field("strong_count", &self.state.strong_count())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -42,14 +43,16 @@ impl<T: FusedStream> WeakStreamBroadcast<T> {
         }
     }
 
-    /// Upgrades a WeakBroadcast to a StreamBroadcastLossy, whose existence keeps the stream running
+    /// Upgrades a `WeakBroadcast` to a `StreamBroadcastLossy`, whose existence keeps the stream running
     #[deprecated(since = "0.3.1", note = "use `create_lossy`")]
+    #[must_use]
     pub fn upgrade(&self) -> Option<StreamBroadcastLossy<T>> {
         self.create_lossy()
     }
 
     /// Creates a lossy subscriber on the same shared buffer, if the underlying broadcast is
     /// still alive. Its existence keeps the stream running.
+    #[must_use]
     pub fn create_lossy(&self) -> Option<StreamBroadcastLossy<T>> {
         let state = self.state.upgrade()?;
         Some(StreamBroadcastLossy {
@@ -60,15 +63,20 @@ impl<T: FusedStream> WeakStreamBroadcast<T> {
     }
 
     /// In contrast to clone, this method only shows new messages provided by the source stream
+    #[must_use]
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "the internal lock is never exposed and never poisoned, since nothing ever panics while holding it"
+    )]
     pub fn re_subscribe(&self) -> Self {
         Self {
             state: self.state.clone(),
             id: create_id(),
+            // State is never polled anyways
             pos: self
                 .state
                 .upgrade()
-                .map(|s| s.lock().unwrap().global_pos)
-                .unwrap_or(0), // State is never polled anyways
+                .map_or(0, |s| s.lock().expect(super::NOT_POISONED).global_pos),
         }
     }
 }
@@ -80,10 +88,15 @@ where
     /// Creates a lossless subscriber on the same shared buffer, if the underlying broadcast is
     /// still alive. Its existence keeps the stream running, and while it lags behind it stalls
     /// every other subscriber sharing the buffer.
+    #[must_use]
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "the internal lock is never exposed and never poisoned, since nothing ever panics while holding it"
+    )]
     pub fn create_lossless(&self) -> Option<StreamBroadcastLossless<T>> {
         let state = self.state.upgrade()?;
         let id = create_id();
-        let mut lock = state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut lock = state.lock().expect(super::NOT_POISONED);
         lock.as_mut().register_lossless(id, self.pos);
         drop(lock);
         Some(StreamBroadcastLossless { id, state })
@@ -114,7 +127,7 @@ where
         let Some(state) = this.state.upgrade() else {
             return Poll::Ready(None);
         };
-        let mut lock = state.lock().unwrap();
+        let mut lock = state.lock().expect(super::NOT_POISONED);
         broadast_next(lock.deref_mut().as_mut(), cx, this.pos, *this.id)
     }
 }
@@ -124,11 +137,9 @@ where
     T::Item: Clone,
 {
     fn is_terminated(&self) -> bool {
-        if let Some(u) = self.state.upgrade() {
-            let lock = u.lock().unwrap();
+        self.state.upgrade().is_none_or(|u| {
+            let lock = u.lock().expect(super::NOT_POISONED);
             lock.stream.is_terminated() && self.pos >= lock.global_pos
-        } else {
-            true
-        }
+        })
     }
 }

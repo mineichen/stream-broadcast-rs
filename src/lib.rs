@@ -5,7 +5,7 @@ use futures::stream::{FusedStream, Stream};
 use pin_project::pin_project;
 use std::{
     collections::BTreeMap,
-    ops::DerefMut,
+    ops::DerefMut as _,
     pin::Pin,
     sync::{atomic::AtomicU64, Arc, Mutex},
     task::Poll,
@@ -14,6 +14,8 @@ use std::{
 mod weak;
 
 pub use weak::*;
+
+const NOT_POISONED: &str = "Lock is not poisoned";
 
 pub trait StreamBroadcastExt: FusedStream + Sized {
     #[deprecated(since = "0.3.1", note = "renamed to `broadcast_lossy`")]
@@ -30,7 +32,7 @@ pub trait StreamBroadcastExt: FusedStream + Sized {
     ///
     /// Because a lossless subscriber can hold the whole broadcast's progress hostage, an alive
     /// but never-polled (or leaked) instance stalls every other subscriber sharing the same
-    /// buffer, including lossy ones and [WeakStreamBroadcast] handles.
+    /// buffer, including lossy ones and [`WeakStreamBroadcast`] handles.
     ///
     /// ```
     /// # #[tokio::main]
@@ -69,7 +71,6 @@ pub trait StreamBroadcastExt: FusedStream + Sized {
     fn broadcast_lossless(self, size: usize) -> StreamBroadcastLossless<Self>;
 }
 
-#[allow(deprecated)]
 impl<T: FusedStream + Sized> StreamBroadcastExt for T
 where
     T::Item: Clone,
@@ -87,7 +88,7 @@ where
     }
 }
 
-/// Renamed to [StreamBroadcastLossy].
+/// Renamed to [`StreamBroadcastLossy`].
 #[deprecated(since = "0.3.1", note = "renamed to `StreamBroadcastLossy`")]
 pub type StreamBroadcast<T> = StreamBroadcastLossy<T>;
 
@@ -103,13 +104,13 @@ impl<T: FusedStream> std::fmt::Debug for StreamBroadcastLossy<T> {
         let pending = self
             .state
             .lock()
-            .unwrap()
+            .expect(NOT_POISONED)
             .global_pos
             .saturating_sub(self.pos);
         f.debug_struct("StreamBroadcastLossy")
             .field("pending_messages", &pending)
             .field("strong_count", &Arc::strong_count(&self.state))
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -135,7 +136,7 @@ where
         }
     }
 
-    /// Creates a weak broadcast which terminates its stream, if all 'strong' [StreamBroadcastLossy] went out of scope
+    /// Creates a weak broadcast which terminates its stream, if all 'strong' [`StreamBroadcastLossy`] went out of scope
     ///
     /// ```
     /// # #[tokio::main]
@@ -150,16 +151,22 @@ where
     /// assert_eq!(None, weak.next().await);
     /// # }
     /// ```
+    #[must_use]
     pub fn downgrade(&self) -> WeakStreamBroadcast<T> {
         WeakStreamBroadcast::new(Arc::downgrade(&self.state), self.pos)
     }
 
     /// In contrast to clone, this method only shows new messages provided by the source stream
+    #[must_use]
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "the internal lock is never exposed and never poisoned, since nothing ever panics while holding it"
+    )]
     pub fn re_subscribe(&self) -> Self {
         Self {
             state: self.state.clone(),
             id: create_id(),
-            pos: self.state.lock().unwrap().global_pos,
+            pos: self.state.lock().expect(NOT_POISONED).global_pos,
         }
     }
 
@@ -167,10 +174,16 @@ where
     /// current position. Items already evicted from the buffer cannot be recovered: if this
     /// subscriber has fallen behind, the new lossless subscriber's start position is clamped to
     /// the oldest item still cached.
+    #[must_use]
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "the internal lock is never exposed and never poisoned, since nothing ever panics while holding it"
+    )]
     pub fn create_lossless(&self) -> StreamBroadcastLossless<T> {
         let id = create_id();
-        let mut lock = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut lock = self.state.lock().expect(NOT_POISONED);
         lock.as_mut().register_lossless(id, self.pos);
+        drop(lock);
         StreamBroadcastLossless {
             id,
             state: self.state.clone(),
@@ -189,13 +202,15 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         let this = self.project();
-        let mut lock = this.state.lock().unwrap();
+        let mut lock = this.state.lock().expect(NOT_POISONED);
         broadast_next(lock.deref_mut().as_mut(), cx, this.pos, *this.id)
     }
 }
 fn create_id() -> u64 {
     static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
-    ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    // Only uniqueness is required here, not ordering relative to any other memory operation --
+    // `fetch_add`'s atomicity alone guarantees distinct values across concurrent callers.
+    ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 fn broadast_next<T: FusedStream>(
     pinned: Pin<&mut StreamBroadcastState<T>>,
@@ -226,14 +241,16 @@ where
     T::Item: Clone,
 {
     fn is_terminated(&self) -> bool {
-        let lock = self.state.lock().unwrap();
+        let lock = self.state.lock().expect(NOT_POISONED);
         lock.stream.is_terminated() && self.pos >= lock.global_pos
     }
 }
 
-/// Created by [broadcast_lossless](StreamBroadcastExt::broadcast_lossless) or
-/// [create_lossless](StreamBroadcastLossy::create_lossless). See
-/// [broadcast_lossless](StreamBroadcastExt::broadcast_lossless) for the full documentation and
+/// A lossless broadcast subscriber.
+///
+/// Created by [`broadcast_lossless`](StreamBroadcastExt::broadcast_lossless) or
+/// [`create_lossless`](StreamBroadcastLossy::create_lossless). See
+/// [`broadcast_lossless`](StreamBroadcastExt::broadcast_lossless) for the full documentation and
 /// a demonstration of the backpressure using a bounded channel.
 pub struct StreamBroadcastLossless<T: FusedStream> {
     id: u64,
@@ -242,12 +259,13 @@ pub struct StreamBroadcastLossless<T: FusedStream> {
 
 impl<T: FusedStream> std::fmt::Debug for StreamBroadcastLossless<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let lock = self.state.lock().unwrap();
+        let lock = self.state.lock().expect(NOT_POISONED);
         let pending = lock.global_pos.saturating_sub(lock.lossless_pos(self.id));
+        drop(lock);
         f.debug_struct("StreamBroadcastLossless")
             .field("pending_messages", &pending)
             .field("strong_count", &Arc::strong_count(&self.state))
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -260,16 +278,26 @@ where
     pub fn new(outer: T, size: usize) -> Self {
         let id = create_id();
         let state = Arc::new(Mutex::new(Box::pin(StreamBroadcastState::new(outer, size))));
-        state.lock().unwrap().as_mut().register_lossless(id, 0);
+        state
+            .lock()
+            .expect(NOT_POISONED)
+            .as_mut()
+            .register_lossless(id, 0);
         Self { id, state }
     }
 
     /// In contrast to clone, this method only shows new messages provided by the source stream
+    #[must_use]
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "the internal lock is never exposed and never poisoned, since nothing ever panics while holding it"
+    )]
     pub fn re_subscribe(&self) -> Self {
         let id = create_id();
-        let mut lock = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut lock = self.state.lock().expect(NOT_POISONED);
         let global_pos = lock.global_pos;
         lock.as_mut().register_lossless(id, global_pos);
+        drop(lock);
         Self {
             state: self.state.clone(),
             id,
@@ -278,9 +306,15 @@ where
 
     /// Creates a lossy subscriber on the same shared buffer, starting at this subscriber's
     /// current position.
+    #[must_use]
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "the internal lock is never exposed and never poisoned, since nothing ever panics while holding it"
+    )]
     pub fn create_lossy(&self) -> StreamBroadcastLossy<T> {
-        let lock = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let lock = self.state.lock().expect(NOT_POISONED);
         let pos = lock.lossless_pos(self.id);
+        drop(lock);
         StreamBroadcastLossy {
             state: self.state.clone(),
             id: create_id(),
@@ -295,9 +329,10 @@ where
 {
     fn clone(&self) -> Self {
         let id = create_id();
-        let mut lock = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut lock = self.state.lock().expect(NOT_POISONED);
         let pos = lock.lossless_pos(self.id);
         lock.as_mut().register_lossless(id, pos);
+        drop(lock);
         Self {
             state: self.state.clone(),
             id,
@@ -307,7 +342,7 @@ where
 
 impl<T: FusedStream> Drop for StreamBroadcastLossless<T> {
     fn drop(&mut self) {
-        let mut lock = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut lock = self.state.lock().expect(NOT_POISONED);
         lock.as_mut().unregister_lossless(self.id);
     }
 }
@@ -323,7 +358,7 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        let mut lock = this.state.lock().unwrap();
+        let mut lock = this.state.lock().expect(NOT_POISONED);
         let pos = lock.lossless_pos(this.id);
         broadcast_next_lossless(lock.deref_mut().as_mut(), cx, pos, this.id)
     }
@@ -334,7 +369,7 @@ where
     T::Item: Clone,
 {
     fn is_terminated(&self) -> bool {
-        let lock = self.state.lock().unwrap();
+        let lock = self.state.lock().expect(NOT_POISONED);
         lock.stream.is_terminated() && lock.lossless_pos(self.id) >= lock.global_pos
     }
 }
@@ -408,9 +443,9 @@ impl<T: FusedStream> StreamBroadcastState<T> {
             stream: outer,
             cache: Vec::with_capacity(size), // Could be improved with  Box<[MaybeUninit<T::Item>]>
             cap: size as u64,
-            global_pos: Default::default(),
-            lossless: Default::default(),
-            wakable: Default::default(),
+            global_pos: 0,
+            lossless: BTreeMap::default(),
+            wakable: Vec::default(),
         }
     }
 
@@ -453,6 +488,10 @@ impl<T: FusedStream> StreamBroadcastState<T>
 where
     T::Item: Clone,
 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "cap is received as usize in the ctor"
+    )]
     fn poll(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -460,6 +499,7 @@ where
         id: u64,
     ) -> Poll<Option<(u64, T::Item)>> {
         let this = self.project();
+
         if *this.global_pos > request_pos {
             let cap = *this.cap;
             let return_pos = if *this.global_pos - request_pos > cap {

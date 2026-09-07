@@ -19,3 +19,53 @@ pin-project = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+testresult = "0.4"
+
+[lints.clippy]
+suboptimal_flops = { level = "allow", priority = 1 }
+tests_outside_test_module = { level = "deny", priority = 1 }
+nursery = "warn"
+pedantic = "warn"
+allow_attributes_without_reason = "warn"
+allow_attributes = "warn"
+dbg_macro = "warn"
+deref_by_slicing = "warn"
+empty_drop = "warn"
+empty_enum_variants_with_brackets = { level = "deny", priority = 1 }
+empty_structs_with_brackets = { level = "allow", priority = 1 }      # This is a false positive in case of Serde. Making exceptions result in inconsistant styles.
+exit = "warn"
+filetype_is_file = "warn"
+fn_to_numeric_cast_any = "warn"
+get_unwrap = "warn"
+if_then_some_else_none = "warn"
+lossy_float_literal = "warn"
+map_with_unused_argument_over_ranges = "warn"
+missing_const_for_fn = { level = "allow", priority = 1 }             # Want to avoid future breaking changes if we ever need to go from const->non-const
+multiple_unsafe_ops_per_block = "warn"
+mutex_atomic = "warn"
+mutex_integer = "warn"
+negative_feature_names = "warn"
+non_zero_suggestions = "warn"
+pathbuf_init_then_push = "warn"
+rc_buffer = "warn"
+rc_mutex = "warn"
+redundant_feature_names = "warn"
+redundant_pub_crate = { level = "allow", priority = 1 }
+redundant_test_prefix = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+return_and_then = "warn"
+same_name_method = "warn"
+semicolon_outside_block = "warn"
+string_lit_chars_any = "warn"
+todo = "warn"
+try_err = { level = "deny", priority = 1 }
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = { level = "deny", priority = 1 }
+unnecessary_safety_doc = { level = "deny", priority = 1 }
+unneeded_field_pattern = "warn"
+unused_trait_names = "warn"
+unused_result_ok = "warn"
+unwrap_used = "warn"
+verbose_file_reads = "warn"
+wildcard-imports = "warn"
+wildcard_dependencies = "warn"

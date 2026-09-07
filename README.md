@@ -32,7 +32,7 @@ async fn main() {
 }
 ```
 A lossless subscriber that is never polled (or leaked) stalls every other subscriber sharing
-its buffer, including lossy ones -- see [StreamBroadcastLossless] for the full caveats and a
+its buffer, including lossy ones -- see [`StreamBroadcastLossless`] for the full caveats and a
 demonstration of the backpressure using a bounded channel.
 
 `broadcast()` and `StreamBroadcast` still work but are deprecated in favor of `broadcast_lossy()`
@@ -43,7 +43,7 @@ and `StreamBroadcastLossy`.
   This crate streams from the same position where the clone-origin is currently at
 - [shared_stream](https://docs.rs/shared_stream/0.2.1/shared_stream/index.html) never skips an entry.
   - `stream_broadcast::StreamBroadcastLossy` provides information about missing data before a item
-  - `stream_broadcast::StreamBroadcastLossless` stalls source polls until all StreamBroadcastLossless have space for it
+  - `stream_broadcast::StreamBroadcastLossless` stalls source polls until all `StreamBroadcastLossless` have space for it
 - High risk of leaking memory
 
 
@@ -51,5 +51,5 @@ and `StreamBroadcastLossy`.
 - Broadcasts don't implement Stream directly, but [tokio_stream](https://docs.rs/tokio-stream/latest/tokio_stream/wrappers/struct.BroadcastStream.html) provides a wrapper.
 - Entries are pushed actively to the sender (No Lazy evaluation when stream is paused). This requires a subroutine, which has to be managed somehow.
   - This can be emulated with `stream_broadcast::StreamBroadcastLossy<futures::channel::mpsc::Receiver<T>>`
-- Instead of returning missing frames in the ErrorVariant ([tokio_stream](https://docs.rs/tokio-stream/latest/tokio_stream/wrappers/struct.BroadcastStream.html)), 
-  `stream_broadcast::StreamBroadcastLossy` returns a tuple (missing_frames_since_last_frame, TData) to avoid silly mistakes on operations like `stream.count()`
+- Instead of returning missing frames in the `ErrorVariant` ([tokio_stream](https://docs.rs/tokio-stream/latest/tokio_stream/wrappers/struct.BroadcastStream.html)), 
+  `stream_broadcast::StreamBroadcastLossy` returns a tuple (`missing_frames_since_last_frame`, `TData`) to avoid silly mistakes on operations like `stream.count()`
