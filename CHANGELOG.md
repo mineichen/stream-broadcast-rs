@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 # 0.3.2
 - Replace futures dependency with futures-core
+- Avoid scan on `state.lossless` which helps performance if there are many lossless subscribers
 
 # 0.3.1 (7. September, 2026)
 - **add** `StreamBroadcastLossless`, a subscriber which never skips items: while it still needs
