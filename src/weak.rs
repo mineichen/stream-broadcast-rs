@@ -2,14 +2,16 @@ use futures::stream::{FusedStream, Stream};
 use pin_project::pin_project;
 use std::{
     ops::DerefMut,
-    pin::{pin, Pin},
+    pin::Pin,
     sync::{Mutex, Weak},
     task::Poll,
 };
 
-use super::{broadast_next, create_id, StreamBroadcast, StreamBroadcastState};
+use super::{
+    broadast_next, create_id, StreamBroadcastLossless, StreamBroadcastLossy, StreamBroadcastState,
+};
 
-/// Created by [weak](crate::StreamBroadcast::weak)
+/// Created by [downgrade](crate::StreamBroadcastLossy::downgrade)
 #[pin_project]
 pub struct WeakStreamBroadcast<T: FusedStream> {
     pos: u64,
@@ -22,7 +24,7 @@ impl<T: FusedStream> std::fmt::Debug for WeakStreamBroadcast<T> {
         let pending = self
             .state
             .upgrade()
-            .map(|x| x.lock().unwrap().global_pos - self.pos)
+            .map(|x| x.lock().unwrap().global_pos.saturating_sub(self.pos))
             .unwrap_or(0);
         f.debug_struct("WeakStreamBroadcast")
             .field("pending_messages", &pending)
@@ -40,10 +42,17 @@ impl<T: FusedStream> WeakStreamBroadcast<T> {
         }
     }
 
-    /// Upgrades a WeakBroadcast to a StreamBroadcast, whose existence keeps the stream running
-    pub fn upgrade(&self) -> Option<StreamBroadcast<T>> {
+    /// Upgrades a WeakBroadcast to a StreamBroadcastLossy, whose existence keeps the stream running
+    #[deprecated(since = "0.3.1", note = "use `create_lossy`")]
+    pub fn upgrade(&self) -> Option<StreamBroadcastLossy<T>> {
+        self.create_lossy()
+    }
+
+    /// Creates a lossy subscriber on the same shared buffer, if the underlying broadcast is
+    /// still alive. Its existence keeps the stream running.
+    pub fn create_lossy(&self) -> Option<StreamBroadcastLossy<T>> {
         let state = self.state.upgrade()?;
-        Some(StreamBroadcast {
+        Some(StreamBroadcastLossy {
             pos: self.pos,
             id: create_id(),
             state,
@@ -61,6 +70,23 @@ impl<T: FusedStream> WeakStreamBroadcast<T> {
                 .map(|s| s.lock().unwrap().global_pos)
                 .unwrap_or(0), // State is never polled anyways
         }
+    }
+}
+
+impl<T: FusedStream> WeakStreamBroadcast<T>
+where
+    T::Item: Clone,
+{
+    /// Creates a lossless subscriber on the same shared buffer, if the underlying broadcast is
+    /// still alive. Its existence keeps the stream running, and while it lags behind it stalls
+    /// every other subscriber sharing the buffer.
+    pub fn create_lossless(&self) -> Option<StreamBroadcastLossless<T>> {
+        let state = self.state.upgrade()?;
+        let id = create_id();
+        let mut lock = state.lock().unwrap_or_else(|e| e.into_inner());
+        lock.as_mut().register_lossless(id, self.pos);
+        drop(lock);
+        Some(StreamBroadcastLossless { id, state })
     }
 }
 
@@ -99,7 +125,8 @@ where
 {
     fn is_terminated(&self) -> bool {
         if let Some(u) = self.state.upgrade() {
-            u.lock().unwrap().stream.is_terminated()
+            let lock = u.lock().unwrap();
+            lock.stream.is_terminated() && self.pos >= lock.global_pos
         } else {
             true
         }
